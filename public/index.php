@@ -9,62 +9,75 @@
  * στους κατάλληλους ελεγκτές.
  */
 
-// Ξεκινήστε τη σύνοδο PHP [8, 9, 10]
+// Start session with secure settings
 session_start();
 
-// Ρυθμίσεις ασφαλείας συνόδου [8, 10]
-// Εξασφαλίζει ότι το cookie συνόδου μεταδίδεται μόνο μέσω HTTPS
-ini_set('session.cookie_secure', 1);
-// Εξασφαλίζει ότι το cookie συνόδου δεν είναι προσβάσιμο από JavaScript
+// Session security settings
+// Only set secure flag if using HTTPS
+if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+    ini_set('session.cookie_secure', 1);
+}
+// Ensure session cookie is not accessible via JavaScript
 ini_set('session.cookie_httponly', 1);
-// Προστασία CSRF: αποτρέπει την αποστολή του cookie με αιτήματα από διαφορετικές ιστοσελίδες [11, 12, 10]
+// CSRF protection: prevent cookie from being sent with cross-site requests
 ini_set('session.cookie_samesite', 'Strict');
 
-// Συμπεριλάβετε το αρχείο σύνδεσης βάσης δεδομένων
-require_once __DIR__. '/../config/database.php';
+// Set security headers
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;");
+header("Referrer-Policy: no-referrer-when-downgrade");
 
-// Συμπεριλάβετε τα αρχεία των μοντέλων και των ελεγκτών
-require_once __DIR__. '/../app/Models/User.php';
-require_once __DIR__. '/../app/Models/Recipe.php';
-require_once __DIR__. '/../app/Models/Comment.php';
-require_once __DIR__. '/../app/Models/Like.php';
+// Include database configuration
+require_once __DIR__ . '/../config/database.php';
 
-require_once __DIR__. '/../app/Controllers/AuthController.php';
-require_once __DIR__. '/../app/Controllers/RecipeController.php';
-require_once __DIR__. '/../app/Controllers/ApiController.php';
+// Include model and controller files
+require_once __DIR__ . '/../app/Models/User.php';
+require_once __DIR__ . '/../app/Models/Recipe.php';
+require_once __DIR__ . '/../app/Models/Comment.php';
+require_once __DIR__ . '/../app/Models/Like.php';
 
-// Απενεργοποίηση εμφάνισης λεπτομερών σφαλμάτων σε περιβάλλον παραγωγής [11, 13, 9, 14]
-// Για ανάπτυξη, μπορείτε να το αλλάξετε σε E_ALL
-error_reporting(0);
+require_once __DIR__ . '/../app/Controllers/AuthController.php';
+require_once __DIR__ . '/../app/Controllers/RecipeController.php';
+require_once __DIR__ . '/../app/Controllers/ApiController.php';
+
+// Error reporting configuration for production
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', __DIR__ . '/../logs/error.log');
 
-// Βασική λογική δρομολόγησης
-$page = $_GET['page']?? 'home'; // Προεπιλεγμένη σελίδα 'home'
-$action = $_GET['action']?? 'index'; // Προεπιλεγμένη ενέργεια 'index'
-$id = $_GET['id']?? null; // Προαιρετικό αναγνωριστικό για προβολή/επεξεργασία
+// Basic routing logic
+$page = filter_var($_GET['page'] ?? 'home', FILTER_SANITIZE_FULL_SPECIAL_CHARS);
+$action = filter_var($_GET['action'] ?? 'index', FILTER_SANITIZE_FULL_SPECIAL_CHARS);
+$id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
 
-// Δρομολόγηση αιτημάτων
+// Route requests
 switch ($page) {
     case 'register':
         $controller = new AuthController($pdo);
-        if ($_SERVER === 'POST') {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $controller->register();
         } else {
             $controller->showRegisterForm();
         }
         break;
+
     case 'login':
         $controller = new AuthController($pdo);
-        if ($_SERVER === 'POST') {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $controller->login();
         } else {
             $controller->showLoginForm();
         }
         break;
+
     case 'logout':
         $controller = new AuthController($pdo);
         $controller->logout();
         break;
+
     case 'recipes':
         $controller = new RecipeController($pdo);
         switch ($action) {
@@ -72,51 +85,76 @@ switch ($page) {
                 $controller->listRecipes();
                 break;
             case 'view':
-                $controller->viewRecipe($id);
+                if ($id) {
+                    $controller->viewRecipe($id);
+                } else {
+                    header('Location: index.php?page=recipes&action=list');
+                    exit();
+                }
                 break;
             case 'create':
-                if ($_SERVER === 'POST') {
+                if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $controller->createRecipe();
                 } else {
                     $controller->showCreateRecipeForm();
                 }
                 break;
             case 'edit':
-                if ($_SERVER === 'POST') {
-                    $controller->editRecipe($id);
+                if ($id) {
+                    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                        $controller->editRecipe($id);
+                    } else {
+                        $controller->showEditRecipeForm($id);
+                    }
                 } else {
-                    $controller->showEditRecipeForm($id);
+                    header('Location: index.php?page=recipes&action=list');
+                    exit();
                 }
                 break;
             case 'delete':
-                $controller->deleteRecipe($id);
+                if ($id) {
+                    $controller->deleteRecipe($id);
+                } else {
+                    header('Location: index.php?page=recipes&action=list');
+                    exit();
+                }
                 break;
-            case 'serve_image': // Νέα ενέργεια για την παράδοση εικόνων
-                $controller->serveImage($_GET['filename']?? '');
+            case 'serve_image':
+                $filename = filter_var($_GET['filename'] ?? '', FILTER_SANITIZE_FULL_SPECIAL_CHARS);
+                $controller->serveImage($filename);
                 break;
             default:
-                $controller->listRecipes(); // Προεπιλεγμένη ενέργεια για συνταγές
+                $controller->listRecipes();
                 break;
         }
         break;
+
     case 'api':
         $controller = new ApiController($pdo);
-        header('Content-Type: application/json'); // Όλες οι απαντήσεις API είναι JSON [15, 16]
+        header('Content-Type: application/json');
         switch ($action) {
             case 'like':
-                $controller->handleLike();
+                if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                    $controller->handleLike();
+                } else {
+                    echo json_encode(['error' => 'Method not allowed']);
+                }
                 break;
             case 'comment':
-                $controller->handleComment();
+                if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                    $controller->handleComment();
+                } else {
+                    echo json_encode(['error' => 'Method not allowed']);
+                }
                 break;
             default:
-                echo json_encode(['error' => 'Άγνωστη ενέργεια API']);
+                echo json_encode(['error' => 'Unknown API action']);
                 break;
         }
         break;
+
     case 'home':
     default:
-        // Μπορείτε να ανακατευθύνετε στην αρχική σελίδα ή στη λίστα συνταγών
         header('Location: index.php?page=recipes&action=list');
         exit();
 }

@@ -1,4 +1,5 @@
 <?php
+// ========== Comment.php ==========
 /**
  * @file Comment.php
  * @brief Μοντέλο σχολίου.
@@ -25,8 +26,13 @@ class Comment {
      * @return bool True αν η προσθήκη ήταν επιτυχής, false αλλιώς.
      */
     public function addComment(int $recipeId, int $userId, string $commentText): bool {
-        $stmt = $this->pdo->prepare("INSERT INTO comments (recipe_id, user_id, comment_text) VALUES (?,?,?)");
-        return $stmt->execute();
+        try {
+            $stmt = $this->pdo->prepare("INSERT INTO comments (recipe_id, user_id, comment_text) VALUES (?, ?, ?)");
+            return $stmt->execute([$recipeId, $userId, $commentText]);
+        } catch (PDOException $e) {
+            error_log("Error adding comment: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -35,8 +41,19 @@ class Comment {
      * @return array Ένας πίνακας σχολίων.
      */
     public function getCommentsByRecipeId(int $recipeId): array {
-        $stmt = $this->pdo->prepare("SELECT c.*, u.username FROM comments c JOIN users u ON c.user_id = u.user_id WHERE c.recipe_id =? ORDER BY c.created_at DESC");
-        $stmt->execute([$recipeId]);
-        return $stmt->fetchAll();
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT c.*, u.username 
+                 FROM comments c 
+                 JOIN users u ON c.user_id = u.user_id 
+                 WHERE c.recipe_id = ? 
+                 ORDER BY c.created_at DESC"
+            );
+            $stmt->execute([$recipeId]);
+            return $stmt->fetchAll();
+        } catch (PDOException $e) {
+            error_log("Error getting comments: " . $e->getMessage());
+            return [];
+        }
     }
 }

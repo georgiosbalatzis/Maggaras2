@@ -8,60 +8,86 @@
  */
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Επικύρωση φόρμας εγγραφής (παράδειγμα) [28, 29, 30]
+    // Get CSRF token from meta tag or session storage
+    function getCSRFToken() {
+        const token = document.querySelector('meta[name="csrf-token"]');
+        return token ? token.content : (window.csrfToken || '');
+    }
+
+    // Set CSRF token if available
+    if (typeof window.csrfToken !== 'undefined') {
+        sessionStorage.setItem('csrf_token', window.csrfToken);
+    }
+
+    // Form validation for registration
     const registerForm = document.querySelector('.auth-form form');
     if (registerForm && registerForm.action.includes('page=register')) {
         const usernameInput = document.getElementById('username');
         const emailInput = document.getElementById('email');
         const passwordInput = document.getElementById('password');
 
-        // Παράδειγμα επικύρωσης σε πραγματικό χρόνο
-        emailInput.addEventListener('input', function() {
-            if (emailInput.validity.typeMismatch) {
-                emailInput.setCustomValidity('Παρακαλώ εισάγετε μια έγκυρη διεύθυνση email.');
-            } else {
-                emailInput.setCustomValidity('');
-            }
-        });
+        // Real-time email validation
+        if (emailInput) {
+            emailInput.addEventListener('input', function() {
+                if (emailInput.validity.typeMismatch) {
+                    emailInput.setCustomValidity('Παρακαλώ εισάγετε μια έγκυρη διεύθυνση email.');
+                } else {
+                    emailInput.setCustomValidity('');
+                }
+            });
+        }
 
-        passwordInput.addEventListener('input', function() {
-            // Πιο σύνθετη επικύρωση κωδικού πρόσβασης με regex [30]
-            const passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*\W).{8,}$/;
-            if (passwordInput.value.length < 6) {
-                passwordInput.setCustomValidity('Ο κωδικός πρόσβασης πρέπει να έχει τουλάχιστον 6 χαρακτήρες.');
-            } else if (!passwordRegex.test(passwordInput.value)) {
-                passwordInput.setCustomValidity('Ο κωδικός πρόσβασης πρέπει να περιέχει τουλάχιστον έναν αριθμό, ένα μικρό γράμμα, ένα κεφαλαίο γράμμα και έναν ειδικό χαρακτήρα.');
-            }
-            else {
-                passwordInput.setCustomValidity('');
-            }
-        });
+        // Password validation
+        if (passwordInput) {
+            passwordInput.addEventListener('input', function() {
+                if (passwordInput.value.length < 8) {
+                    passwordInput.setCustomValidity('Ο κωδικός πρόσβασης πρέπει να έχει τουλάχιστον 8 χαρακτήρες.');
+                } else {
+                    passwordInput.setCustomValidity('');
+                }
+            });
+        }
 
+        // Username validation
+        if (usernameInput) {
+            usernameInput.addEventListener('input', function() {
+                if (usernameInput.value.length < 3) {
+                    usernameInput.setCustomValidity('Το όνομα χρήστη πρέπει να έχει τουλάχιστον 3 χαρακτήρες.');
+                } else if (usernameInput.value.length > 50) {
+                    usernameInput.setCustomValidity('Το όνομα χρήστη δεν μπορεί να υπερβαίνει τους 50 χαρακτήρες.');
+                } else {
+                    usernameInput.setCustomValidity('');
+                }
+            });
+        }
+
+        // Form submission validation
         registerForm.addEventListener('submit', function(event) {
-            // Εδώ μπορείτε να προσθέσετε πρόσθετη λογική επικύρωσης πριν την υποβολή
             if (!registerForm.checkValidity()) {
-                event.preventDefault(); // Σταματήστε την υποβολή αν η φόρμα δεν είναι έγκυρη
+                event.preventDefault();
                 alert('Παρακαλώ συμπληρώστε σωστά όλα τα υποχρεωτικά πεδία.');
             }
         });
     }
 
-    // Λειτουργία Like (AJAX) [28, 7, 31]
+    // Like functionality (AJAX)
     const likeButton = document.getElementById('like-button');
     if (likeButton) {
         likeButton.addEventListener('click', async function() {
             const recipeId = this.dataset.recipeId;
             const currentLikesSpan = document.getElementById('like-count');
-            let currentLikes = parseInt(currentLikesSpan.textContent);
 
             try {
+                const csrfToken = sessionStorage.getItem('csrf_token') || '';
                 const response = await fetch('/index.php?page=api&action=like', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
                     },
-                    body: JSON.stringify({ recipe_id: recipeId })
+                    body: JSON.stringify({ recipe_id: parseInt(recipeId) })
                 });
+
                 const data = await response.json();
 
                 if (data.success) {
@@ -74,7 +100,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         likeButton.textContent = 'Μου αρέσει';
                     }
                 } else {
-                    alert(data.message);
+                    alert(data.message || 'Σφάλμα κατά την επεξεργασία του like.');
                 }
             } catch (error) {
                 console.error('Σφάλμα AJAX για like:', error);
@@ -83,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Υποβολή Σχολίου (AJAX) [28, 7, 31]
+    // Comment submission (AJAX)
     const submitCommentButton = document.getElementById('submit-comment');
     if (submitCommentButton) {
         submitCommentButton.addEventListener('click', async function() {
@@ -96,35 +122,69 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+            if (commentText.length > 1000) {
+                alert('Το σχόλιο είναι πολύ μεγάλο (μέγιστο 1000 χαρακτήρες).');
+                return;
+            }
+
             try {
+                const csrfToken = sessionStorage.getItem('csrf_token') || '';
                 const response = await fetch('/index.php?page=api&action=comment', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
                     },
-                    body: JSON.stringify({ recipe_id: recipeId, comment_text: commentText })
+                    body: JSON.stringify({
+                        recipe_id: parseInt(recipeId),
+                        comment_text: commentText
+                    })
                 });
+
                 const data = await response.json();
 
                 if (data.success) {
                     const commentsList = document.getElementById('comments-list');
-                    // Δημιουργία νέου στοιχείου σχολίου
-                    const newCommentDiv = document.createElement('div');
-                    newCommentDiv.classList.add('comment-item');
-                    newCommentDiv.innerHTML = `
-                        <p class="comment-author"><strong>${data.comment.username}</strong> <span class="comment-date">${data.comment.created_at}</span></p>
-                        <p class="comment-text">${data.comment.comment_text.replace(/\n/g, '<br>')}</p>
-                    `;
-                    // Προσθήκη του νέου σχολίου στην αρχή της λίστας
-                    commentsList.prepend(newCommentDiv);
-                    commentTextInput.value = ''; // Καθαρισμός του πεδίου κειμένου
-                    // Αφαιρέστε το μήνυμα "Δεν υπάρχουν σχόλια ακόμα" αν υπάρχει
-                    const noCommentsMessage = commentsList.querySelector('p:last-child');
-                    if (noCommentsMessage && noCommentsMessage.textContent.includes('Δεν υπάρχουν σχόλια ακόμα')) {
+
+                    // Remove "no comments" message if exists
+                    const noCommentsMessage = document.getElementById('no-comments-message');
+                    if (noCommentsMessage) {
                         noCommentsMessage.remove();
                     }
+
+                    // Create new comment element
+                    const newCommentDiv = document.createElement('div');
+                    newCommentDiv.classList.add('comment-item');
+
+                    // Safely escape and display comment
+                    const commentAuthor = document.createElement('p');
+                    commentAuthor.className = 'comment-author';
+
+                    const strongElement = document.createElement('strong');
+                    strongElement.textContent = data.comment.username;
+                    commentAuthor.appendChild(strongElement);
+
+                    const dateSpan = document.createElement('span');
+                    dateSpan.className = 'comment-date';
+                    dateSpan.textContent = ' ' + data.comment.created_at;
+                    commentAuthor.appendChild(dateSpan);
+
+                    const commentTextP = document.createElement('p');
+                    commentTextP.className = 'comment-text';
+                    commentTextP.textContent = data.comment.comment_text;
+                    // Convert newlines to <br> safely
+                    commentTextP.innerHTML = commentTextP.innerHTML.replace(/\n/g, '<br>');
+
+                    newCommentDiv.appendChild(commentAuthor);
+                    newCommentDiv.appendChild(commentTextP);
+
+                    // Add new comment at the beginning
+                    commentsList.insertBefore(newCommentDiv, commentsList.firstChild);
+
+                    // Clear the textarea
+                    commentTextInput.value = '';
                 } else {
-                    alert(data.message);
+                    alert(data.message || 'Σφάλμα κατά την υποβολή σχολίου.');
                 }
             } catch (error) {
                 console.error('Σφάλμα AJAX για σχόλιο:', error);
@@ -132,4 +192,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Add CSRF token to page for AJAX requests
+    const csrfMeta = document.createElement('meta');
+    csrfMeta.name = 'csrf-token';
+    csrfMeta.content = sessionStorage.getItem('csrf_token') || '';
+    document.head.appendChild(csrfMeta);
 });
+
+// Store CSRF token when page loads (to be set by PHP)
+window.csrfToken = window.csrfToken || '';

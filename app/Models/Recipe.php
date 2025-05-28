@@ -1,4 +1,5 @@
 <?php
+// ========== Recipe.php ==========
 /**
  * @file Recipe.php
  * @brief Μοντέλο συνταγής.
@@ -23,52 +24,72 @@ class Recipe {
      * @return int|false Το αναγνωριστικό της νέας συνταγής αν επιτυχής, false αλλιώς.
      */
     public function createRecipe(array $data) {
-        $stmt = $this->pdo->prepare("INSERT INTO recipes (user_id, title, description, prep_time, cook_time, servings, main_image_path) VALUES (?,?,?,?,?,?,?)");
-        if ($stmt->execute([
-            $data['user_id'],
-            $data['title'],
-            $data['description'],
-            $data['prep_time'],
-            $data['cook_time'],
-            $data['servings'],
-            $data['main_image_path']])) return $this->pdo->lastInsertId();
-        return false;
+        try {
+            $stmt = $this->pdo->prepare(
+                "INSERT INTO recipes (user_id, title, description, prep_time, cook_time, servings, main_image_path) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+            );
+
+            if ($stmt->execute([
+                $data['user_id'],
+                $data['title'],
+                $data['description'],
+                $data['prep_time'],
+                $data['cook_time'],
+                $data['servings'],
+                $data['main_image_path']
+            ])) {
+                return $this->pdo->lastInsertId();
+            }
+            return false;
+        } catch (PDOException $e) {
+            error_log("Error creating recipe: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
      * Προσθέτει συστατικά σε μια συνταγή.
      * @param int $recipeId Το αναγνωριστικό της συνταγής.
-     * @param array $ingredients Ένας πίνακας συστατικών, όπου κάθε στοιχείο είναι ένας πίνακας με 'name', 'quantity', 'unit'.
+     * @param array $ingredients Ένας πίνακας συστατικών.
      * @return bool True αν επιτυχής, false αλλιώς.
      */
     public function addIngredients(int $recipeId, array $ingredients): bool {
         $this->pdo->beginTransaction();
         try {
-            foreach ($ingredients as $ingredient) {
-                // Ελέγξτε αν το συστατικό υπάρχει ήδη στον master πίνακα ingredients
-                $stmt = $this->pdo->prepare("SELECT ingredient_id FROM ingredients WHERE ingredient_name =?");
-                $stmt->execute([$ingredient['name']]);
-                $existingIngredient = $stmt->fetch();
+            $checkStmt = $this->pdo->prepare("SELECT ingredient_id FROM ingredients WHERE ingredient_name = ?");
+            $insertIngredientStmt = $this->pdo->prepare("INSERT INTO ingredients (ingredient_name) VALUES (?)");
+            $insertRecipeIngredientStmt = $this->pdo->prepare(
+                "INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit) VALUES (?, ?, ?, ?)"
+            );
 
-                $ingredientId = null;
+            foreach ($ingredients as $ingredient) {
+                // Check if ingredient exists
+                $checkStmt->execute([$ingredient['name']]);
+                $existingIngredient = $checkStmt->fetch();
+
                 if ($existingIngredient) {
                     $ingredientId = $existingIngredient['ingredient_id'];
                 } else {
-                    // Αν δεν υπάρχει, προσθέστε το στον master πίνακα
-                    $stmt = $this->pdo->prepare("INSERT INTO ingredients (ingredient_name) VALUES (?)");
-                    $stmt->execute([$ingredient['name']]);
+                    // Add new ingredient
+                    $insertIngredientStmt->execute([$ingredient['name']]);
                     $ingredientId = $this->pdo->lastInsertId();
                 }
 
-                // Προσθέστε το συστατικό στον πίνακα recipe_ingredients
-                $stmt = $this->pdo->prepare("INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit) VALUES (?,?,?,?)");
-                $stmt->execute([$recipeId, $ingredientId, $ingredient['quantity'], $ingredient['unit']]);
+                // Add to recipe_ingredients
+                $insertRecipeIngredientStmt->execute([
+                    $recipeId,
+                    $ingredientId,
+                    $ingredient['quantity'],
+                    $ingredient['unit']
+                ]);
             }
+
             $this->pdo->commit();
             return true;
         } catch (Exception $e) {
             $this->pdo->rollBack();
-            error_log("Σφάλμα προσθήκης συστατικών: ". $e->getMessage());
+            error_log("Error adding ingredients: " . $e->getMessage());
             return false;
         }
     }
@@ -76,48 +97,78 @@ class Recipe {
     /**
      * Προσθέτει οδηγίες σε μια συνταγή.
      * @param int $recipeId Το αναγνωριστικό της συνταγής.
-     * @param array $directions Ένας πίνακας οδηγιών, όπου κάθε στοιχείο είναι ένας πίνακας με 'step_number', 'description'.
+     * @param array $directions Ένας πίνακας οδηγιών.
      * @return bool True αν επιτυχής, false αλλιώς.
      */
     public function addDirections(int $recipeId, array $directions): bool {
         $this->pdo->beginTransaction();
         try {
+            $stmt = $this->pdo->prepare(
+                "INSERT INTO directions (recipe_id, step_number, description) VALUES (?, ?, ?)"
+            );
+
             foreach ($directions as $direction) {
-                $stmt = $this->pdo->prepare("INSERT INTO directions (recipe_id, step_number, description) VALUES (?,?,?)");
-                $stmt->execute([$recipeId, $direction['step_number'], $direction['description']]);
+                $stmt->execute([
+                    $recipeId,
+                    $direction['step_number'],
+                    $direction['description']
+                ]);
             }
+
             $this->pdo->commit();
             return true;
         } catch (Exception $e) {
             $this->pdo->rollBack();
-            error_log("Σφάλμα προσθήκης οδηγιών: ". $e->getMessage());
+            error_log("Error adding directions: " . $e->getMessage());
             return false;
         }
     }
 
     /**
-     * Ανακτά μια συνταγή με βάση το αναγνωριστικό της, μαζί με συστατικά και οδηγίες.
+     * Ανακτά μια συνταγή με βάση το αναγνωριστικό της.
      * @param int $recipeId Το αναγνωριστικό της συνταγής.
      * @return array|false Τα δεδομένα της συνταγής αν βρεθεί, false αλλιώς.
      */
     public function getRecipeById(int $recipeId) {
-        // Ανακτήστε τις βασικές πληροφορίες συνταγής
-        $stmt = $this->pdo->prepare("SELECT r.*, u.username FROM recipes r JOIN users u ON r.user_id = u.user_id WHERE r.recipe_id =?");
-        $stmt->execute([$recipeId]);
-        $recipe = $stmt->fetch();
-
-        if ($recipe) {
-            // Ανακτήστε τα συστατικά
-            $stmt = $this->pdo->prepare("SELECT ri.quantity, ri.unit, i.ingredient_name FROM recipe_ingredients ri JOIN ingredients i ON ri.ingredient_id = i.ingredient_id WHERE ri.recipe_id =? ORDER BY i.ingredient_name");
+        try {
+            // Get recipe basic info
+            $stmt = $this->pdo->prepare(
+                "SELECT r.*, u.username 
+                 FROM recipes r 
+                 JOIN users u ON r.user_id = u.user_id 
+                 WHERE r.recipe_id = ?"
+            );
             $stmt->execute([$recipeId]);
-            $recipe['ingredients'] = $stmt->fetchAll();
+            $recipe = $stmt->fetch();
 
-            // Ανακτήστε τις οδηγίες
-            $stmt = $this->pdo->prepare("SELECT step_number, description FROM directions WHERE recipe_id =? ORDER BY step_number ASC"); [20, 21];
-            $stmt->execute([$recipeId]);
-            $recipe['directions'] = $stmt->fetchAll();
+            if ($recipe) {
+                // Get ingredients
+                $stmt = $this->pdo->prepare(
+                    "SELECT ri.quantity, ri.unit, i.ingredient_name 
+                     FROM recipe_ingredients ri 
+                     JOIN ingredients i ON ri.ingredient_id = i.ingredient_id 
+                     WHERE ri.recipe_id = ? 
+                     ORDER BY i.ingredient_name"
+                );
+                $stmt->execute([$recipeId]);
+                $recipe['ingredients'] = $stmt->fetchAll();
+
+                // Get directions
+                $stmt = $this->pdo->prepare(
+                    "SELECT step_number, description 
+                     FROM directions 
+                     WHERE recipe_id = ? 
+                     ORDER BY step_number ASC"
+                );
+                $stmt->execute([$recipeId]);
+                $recipe['directions'] = $stmt->fetchAll();
+            }
+
+            return $recipe;
+        } catch (PDOException $e) {
+            error_log("Error getting recipe: " . $e->getMessage());
+            return false;
         }
-        return $recipe;
     }
 
     /**
@@ -125,8 +176,18 @@ class Recipe {
      * @return array Ένας πίνακας όλων των συνταγών.
      */
     public function getAllRecipes(): array {
-        $stmt = $this->pdo->query("SELECT r.*, u.username FROM recipes r JOIN users u ON r.user_id = u.user_id ORDER BY r.created_at DESC");
-        return $stmt->fetchAll();
+        try {
+            $stmt = $this->pdo->query(
+                "SELECT r.*, u.username 
+                 FROM recipes r 
+                 JOIN users u ON r.user_id = u.user_id 
+                 ORDER BY r.created_at DESC"
+            );
+            return $stmt->fetchAll();
+        } catch (PDOException $e) {
+            error_log("Error getting all recipes: " . $e->getMessage());
+            return [];
+        }
     }
 
     /**
@@ -136,16 +197,25 @@ class Recipe {
      * @return bool True αν η ενημέρωση ήταν επιτυχής, false αλλιώς.
      */
     public function updateRecipe(int $recipeId, array $data): bool {
-        $stmt = $this->pdo->prepare("UPDATE recipes SET title =?, description =?, prep_time =?, cook_time =?, servings =?, main_image_path =? WHERE recipe_id =?");
-        return $stmt->execute([
-            $data['title'],
-            $data['description'],
-            $data['prep_time'],
-            $data['cook_time'],
-            $data['servings'],
-            $data['main_image_path'],
-            $recipeId
-        ]);
+        try {
+            $stmt = $this->pdo->prepare(
+                "UPDATE recipes 
+                 SET title = ?, description = ?, prep_time = ?, cook_time = ?, servings = ?, main_image_path = ? 
+                 WHERE recipe_id = ?"
+            );
+            return $stmt->execute([
+                $data['title'],
+                $data['description'],
+                $data['prep_time'],
+                $data['cook_time'],
+                $data['servings'],
+                $data['main_image_path'],
+                $recipeId
+            ]);
+        } catch (PDOException $e) {
+            error_log("Error updating recipe: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -154,7 +224,12 @@ class Recipe {
      * @return bool True αν η διαγραφή ήταν επιτυχής, false αλλιώς.
      */
     public function deleteRecipe(int $recipeId): bool {
-        $stmt = $this->pdo->prepare("DELETE FROM recipes WHERE recipe_id =?");
-        return $stmt->execute([$recipeId]);
+        try {
+            $stmt = $this->pdo->prepare("DELETE FROM recipes WHERE recipe_id = ?");
+            return $stmt->execute([$recipeId]);
+        } catch (PDOException $e) {
+            error_log("Error deleting recipe: " . $e->getMessage());
+            return false;
+        }
     }
 }

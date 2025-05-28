@@ -8,21 +8,30 @@
  * εκτός του web root σε ένα πραγματικό περιβάλλον παραγωγής.
  */
 
-// Ρυθμίσεις βάσης δεδομένων
+// Database configuration
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'recipe_social_network'); // Αλλάξτε το όνομα της βάσης δεδομένων σας
-define('DB_USER', 'root');                  // Αλλάξτε το όνομα χρήστη της βάσης δεδομένων σας
-define('DB_PASS', '');                      // Αλλάξτε τον κωδικό πρόσβασης της βάσης δεδομένων σας
+define('DB_NAME', 'recipe_social_network');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 try {
-    // Δημιουργία νέας σύνδεσης PDO [7]
-    $pdo = new PDO("mysql:host=". DB_HOST. ";dbname=". DB_NAME. ";charset=utf8", DB_USER, DB_PASS);
-    // Ορισμός λειτουργίας σφάλματος PDO σε εξαίρεση [7]
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    // Ορισμός προεπιλεγμένης λειτουργίας ανάκτησης σε συσχετιστικό πίνακα
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    // Create new PDO connection with UTF-8 support
+    $pdo = new PDO(
+        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+        DB_USER,
+        DB_PASS,
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false, // Disable emulation for better security
+            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
+        ]
+    );
 } catch (PDOException $e) {
-    // Χειρισμός σφαλμάτων σύνδεσης [8]
-    error_log("Σφάλμα σύνδεσης βάσης δεδομένων: ". $e->getMessage()); // Καταγραφή σφάλματος
-    die("Σφάλμα σύνδεσης με τη βάση δεδομένων. Παρακαλώ δοκιμάστε αργότερα."); // Φιλικό μήνυμα για τον χρήστη
+    // Log error securely
+    error_log("Database connection error: " . $e->getMessage());
+
+    // Display generic error message to user
+    header('HTTP/1.1 503 Service Unavailable');
+    die("Database connection error. Please try later.");
 }
