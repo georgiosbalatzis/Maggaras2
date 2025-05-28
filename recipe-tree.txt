@@ -1,0 +1,32 @@
+/recipe_app
+├── public/
+│   ├── index.php             (Κεντρικό σημείο εισόδου, χειρίζεται τη δρομολόγηση)
+│   ├── css/
+│   │   └── style.css         (Βασικό στυλ)
+│   └── js/
+│       └── main.js           (JavaScript από την πλευρά του πελάτη, AJAX, επικύρωση)
+├── app/
+│   ├── Models/
+│   │   ├── User.php
+│   │   ├── Recipe.php
+│   │   ├── Comment.php
+│   │   └── Like.php
+│   ├── Controllers/
+│   │   ├── AuthController.php
+│   │   ├── RecipeController.php
+│   │   └── ApiController.php
+│   └── Views/
+│       ├── auth/
+│       │   ├── register.php
+│       │   └── login.php
+│       ├── recipes/
+│       │   ├── create.php
+│       │   ├── view.php
+│       │   └── list.php
+│       └── layout/
+│           ├── header.php
+│           └── footer.php
+├── config/
+│   └── database.php          (Σύνδεση βάσης δεδομένων)
+├── uploads/                  (Εκτός του web root, για εικόνες - Δημιουργήστε αυτόν τον φάκελο)
+└──.htaccess                 (Για ανακατεύθυνση URL)
